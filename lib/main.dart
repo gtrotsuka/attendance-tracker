@@ -61,6 +61,27 @@ class AttendanceProvider extends ChangeNotifier {
 
   AttendanceProvider() {
     _initializeServices();
+    _setupFirebaseListeners();
+  }
+  void _setupFirebaseListeners() {
+    // Listen for Firebase real-time updates and refresh provider state
+    SimpleFirebaseService.eventListener?.cancel();
+    SimpleFirebaseService.eventListener = SimpleFirebaseService.database?.ref('events').onValue.listen((event) async {
+      print('🔄 [Provider] Events updated: ${event.snapshot.value}');
+      await refreshData();
+    });
+
+    SimpleFirebaseService.attendanceListener?.cancel();
+    SimpleFirebaseService.attendanceListener = SimpleFirebaseService.database?.ref('attendance').onValue.listen((event) async {
+      print('🔄 [Provider] Attendance updated: ${event.snapshot.value}');
+      await refreshData();
+    });
+
+    SimpleFirebaseService.leaderboardListener?.cancel();
+    SimpleFirebaseService.leaderboardListener = SimpleFirebaseService.database?.ref('students').onValue.listen((event) async {
+      print('🔄 [Provider] Leaderboard updated: ${event.snapshot.value}');
+      await refreshData();
+    });
   }
 
   Event? get currentEvent => _currentEvent;

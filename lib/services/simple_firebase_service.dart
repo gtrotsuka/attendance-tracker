@@ -6,6 +6,14 @@ import 'attendance_service.dart';
 class SimpleFirebaseService extends AttendanceService {
   static FirebaseDatabase? _database;
   static bool _isFirebaseAvailable = false;
+  static StreamSubscription<DatabaseEvent>? _eventListener;
+  static StreamSubscription<DatabaseEvent>? _attendanceListener;
+  static StreamSubscription<DatabaseEvent>? _leaderboardListener;
+  static FirebaseDatabase? database;
+  static bool isFirebaseAvailable = false;
+  static StreamSubscription<DatabaseEvent>? eventListener;
+  static StreamSubscription<DatabaseEvent>? attendanceListener;
+  static StreamSubscription<DatabaseEvent>? leaderboardListener;
 
   /// Check if Firebase is available and initialize database reference
   static Future<void> initializeFirebase() async {
@@ -13,11 +21,52 @@ class SimpleFirebaseService extends AttendanceService {
       _database = FirebaseDatabase.instance;
       await _database!.goOnline();
       _isFirebaseAvailable = true;
+      database = FirebaseDatabase.instance;
+      await database!.goOnline();
+      isFirebaseAvailable = true;
       print('🔥 Firebase database initialized successfully');
+      // Start listening for real-time updates
+      _startRealtimeListeners();
     } catch (e) {
       _isFirebaseAvailable = false;
       print('⚠️  Firebase database initialization failed: $e');
     }
+  }
+  /// Start real-time listeners for events, attendance, and leaderboard
+  static void _startRealtimeListeners() {
+    // Listen for event changes
+    _eventListener?.cancel();
+    _eventListener = _database?.ref('events').onValue.listen((event) {
+      // TODO: Parse event.snapshot.value and update local cache/state
+      print('🔄 [Firebase] Events updated: ${event.snapshot.value}');
+    });
+    eventListener?.cancel();
+    eventListener = database?.ref('events').onValue.listen((event) {
+      // TODO: Parse event.snapshot.value and update local cache/state
+      print('🔄 [Firebase] Events updated: ${event.snapshot.value}');
+    });
+
+    _attendanceListener?.cancel();
+    _attendanceListener = _database?.ref('attendance').onValue.listen((event) {
+      // TODO: Parse event.snapshot.value and update local cache/state
+      print('🔄 [Firebase] Attendance updated: ${event.snapshot.value}');
+    });
+    attendanceListener?.cancel();
+    attendanceListener = database?.ref('attendance').onValue.listen((event) {
+      // TODO: Parse event.snapshot.value and update local cache/state
+      print('🔄 [Firebase] Attendance updated: ${event.snapshot.value}');
+    });
+
+    _leaderboardListener?.cancel();
+    _leaderboardListener = _database?.ref('students').onValue.listen((event) {
+      // TODO: Parse event.snapshot.value and update local cache/state
+      print('🔄 [Firebase] Leaderboard updated: ${event.snapshot.value}');
+    });
+    leaderboardListener?.cancel();
+    leaderboardListener = database?.ref('students').onValue.listen((event) {
+      // TODO: Parse event.snapshot.value and update local cache/state
+      print('🔄 [Firebase] Leaderboard updated: ${event.snapshot.value}');
+    });
   }
 
   /// Process attendance with Firebase sync
@@ -107,5 +156,16 @@ class SimpleFirebaseService extends AttendanceService {
   }
 
   /// Get Firebase connection status
-  static bool get isFirebaseAvailable => _isFirebaseAvailable;
+  /// Dispose listeners when no longer needed
+  static void disposeListeners() {
+    _eventListener?.cancel();
+    _attendanceListener?.cancel();
+    _leaderboardListener?.cancel();
+    eventListener?.cancel();
+    attendanceListener?.cancel();
+    leaderboardListener?.cancel();
+    eventListener?.cancel();
+    attendanceListener?.cancel();
+    leaderboardListener?.cancel();
+  }
 }
