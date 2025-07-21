@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import '../models/models.dart';
@@ -123,11 +122,11 @@ class DatabaseService {
     // End any existing active events
     for (var i = 0; i < events.length; i++) {
       if (events[i].isActive) {
-        events[i] = events[i].copyWith(isActive: false, endTime: DateTime.now());
+        events[i] = events[i].copyWith(isActive: false);
       }
     }
-    final newId = events.isEmpty ? 1 : events.map((e) => e.id ?? 0).reduce((a, b) => a > b ? a : b) + 1;
-    final newEvent = event.copyWith(id: newId);
+    final newId = events.isEmpty ? 1 : events.map((e) => int.tryParse(e.id ?? '0') ?? 0).reduce((a, b) => a > b ? a : b) + 1;
+    final newEvent = event.copyWith(id: newId.toString());
     events.add(newEvent);
     await _saveEventsToPrefs(events);
     print('✅ [DATABASE] Event inserted with ID: $newId (web)');
@@ -145,18 +144,15 @@ class DatabaseService {
 
   Future<List<Event>> getAllEvents() async {
     final events = await _getEventsFromPrefs();
-    events.sort((a, b) => b.startTime.compareTo(a.startTime));
+    events.sort((a, b) => b.date.compareTo(a.date));
     return events;
   }
 
   Future<void> endEvent(int eventId) async {
     final events = await _getEventsFromPrefs();
-    final index = events.indexWhere((e) => e.id == eventId);
+    final index = events.indexWhere((e) => int.tryParse(e.id ?? '0') == eventId);
     if (index != -1) {
-      events[index] = events[index].copyWith(
-        isActive: false, 
-        endTime: DateTime.now()
-      );
+      events[index] = events[index].copyWith(isActive: false);
       await _saveEventsToPrefs(events);
     }
   }
@@ -165,8 +161,8 @@ class DatabaseService {
   Future<int> insertAttendanceRecord(AttendanceRecord record) async {
     print('📝 [DATABASE] Inserting attendance record for: ${record.studentId}');
     final records = await _getAttendanceFromPrefs();
-    final newId = records.isEmpty ? 1 : records.map((r) => r.id ?? 0).reduce((a, b) => a > b ? a : b) + 1;
-    final newRecord = record.copyWith(id: newId);
+    final newId = records.isEmpty ? 1 : records.map((r) => int.tryParse(r.id ?? '0') ?? 0).reduce((a, b) => a > b ? a : b) + 1;
+    final newRecord = record.copyWith(id: newId.toString());
     records.add(newRecord);
     await _saveAttendanceToPrefs(records);
     print('✅ [DATABASE] Attendance record inserted with ID: $newId (web)');
@@ -178,7 +174,7 @@ class DatabaseService {
     try {
       return records.firstWhere((r) => 
         r.studentId == studentId && 
-        r.eventId == eventId && 
+        int.tryParse(r.eventId) == eventId && 
         r.checkOutTime == null
       );
     } catch (e) {
@@ -188,11 +184,11 @@ class DatabaseService {
 
   Future<void> updateCheckOut(int recordId, DateTime checkOutTime, int points) async {
     final records = await _getAttendanceFromPrefs();
-    final index = records.indexWhere((r) => r.id == recordId);
+    final index = records.indexWhere((r) => int.tryParse(r.id ?? '0') == recordId);
     if (index != -1) {
       records[index] = records[index].copyWith(
         checkOutTime: checkOutTime,
-        pointsEarned: points
+        points: points
       );
       await _saveAttendanceToPrefs(records);
     }
@@ -200,7 +196,7 @@ class DatabaseService {
 
   Future<List<AttendanceRecord>> getAttendanceRecords(int eventId) async {
     final records = await _getAttendanceFromPrefs();
-    final filtered = records.where((r) => r.eventId == eventId).toList();
+    final filtered = records.where((r) => int.tryParse(r.eventId) == eventId).toList();
     filtered.sort((a, b) => b.checkInTime.compareTo(a.checkInTime));
     return filtered;
   }
@@ -222,7 +218,7 @@ class DatabaseService {
     int total = 0;
     for (final record in records) {
       if (record.studentId == studentId) {
-        total += record.pointsEarned;
+        total += record.points;
       }
     }
     return total;

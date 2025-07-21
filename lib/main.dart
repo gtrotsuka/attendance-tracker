@@ -2,13 +2,29 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
-import 'services/attendance_service.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'services/simple_firebase_service.dart';
 import 'services/database_service.dart';
+import 'config/firebase_config.dart';
 import 'models/models.dart';
 
 void main() async {
   // Ensure Flutter widgets are initialized
   WidgetsFlutterBinding.ensureInitialized();
+  
+  // Initialize Firebase
+  try {
+    await Firebase.initializeApp(
+      options: FirebaseConfig.options,
+    );
+    print('🔥 Firebase initialized successfully');
+    
+    // Initialize the simple Firebase service
+    await SimpleFirebaseService.initializeFirebase();
+  } catch (e) {
+    print('⚠️  Firebase initialization failed: $e');
+    print('📱 App will run in local-only mode');
+  }
   
   // Initialize database factory for desktop platforms
   await DatabaseService.initialize();
@@ -36,12 +52,16 @@ class MainApp extends StatelessWidget {
 }
 
 class AttendanceProvider extends ChangeNotifier {
-  final AttendanceService _attendanceService = AttendanceService();
+  final SimpleFirebaseService _attendanceService = SimpleFirebaseService();
   Event? _currentEvent;
   List<AttendanceRecord> _currentAttendance = [];
   List<Student> _leaderboard = [];
   String _statusMessage = 'Ready to scan cards or enter ID manually';
   bool _isLoading = false;
+
+  AttendanceProvider() {
+    _initializeServices();
+  }
 
   Event? get currentEvent => _currentEvent;
   List<AttendanceRecord> get currentAttendance => _currentAttendance;
@@ -49,24 +69,28 @@ class AttendanceProvider extends ChangeNotifier {
   String get statusMessage => _statusMessage;
   bool get isLoading => _isLoading;
 
+  Future<void> _initializeServices() async {
+    try {
+      final isFirebaseAvailable = SimpleFirebaseService.isFirebaseAvailable;
+      _statusMessage = isFirebaseAvailable 
+          ? 'Ready to scan cards - Firebase sync enabled'
+          : 'Ready to scan cards - Local storage only';
+      await refreshData();
+    } catch (e) {
+      _statusMessage = 'Initialization failed, using local storage only';
+    }
+  }
+
   Future<void> initialize() async {
-    print('🚀 [UI] Starting AttendanceProvider initialization...');
     _isLoading = true;
     _statusMessage = 'Initializing database...';
     notifyListeners();
     
     try {
-      print('🔍 [UI] Getting current event...');
       _currentEvent = await _attendanceService.getCurrentEvent();
-      print('📝 [UI] Current event: ${_currentEvent?.name ?? 'None'}');
-      
-      print('📊 [UI] Refreshing data...');
       await refreshData();
-      
       _statusMessage = 'Ready to scan cards or enter ID manually';
-      print('✅ [UI] AttendanceProvider initialization completed');
     } catch (e) {
-      print('❌ [UI] AttendanceProvider initialization failed: $e');
       _statusMessage = 'Initialization failed: ${e.toString()}';
     }
     
@@ -75,18 +99,11 @@ class AttendanceProvider extends ChangeNotifier {
   }
 
   Future<void> refreshData() async {
-    print('🔄 [UI] Refreshing attendance data...');
     try {
       _currentAttendance = await _attendanceService.getCurrentEventAttendance();
-      print('📋 [UI] Current attendance records: ${_currentAttendance.length}');
-      
       _leaderboard = await _attendanceService.getLeaderboard();
-      print('🏆 [UI] Leaderboard entries: ${_leaderboard.length}');
-      
       notifyListeners();
-      print('✅ [UI] Data refresh completed');
     } catch (e) {
-      print('❌ [UI] Data refresh failed: $e');
       _statusMessage = 'Failed to refresh data: ${e.toString()}';
       notifyListeners();
     }
@@ -94,13 +111,11 @@ class AttendanceProvider extends ChangeNotifier {
 
   Future<void> processAttendance(String input, {bool isManual = false}) async {
     if (input.trim().isEmpty) {
-      print('⚠️  [UI] Empty input provided');
       _statusMessage = 'Error: Empty input';
       notifyListeners();
       return;
     }
 
-    print('📝 [UI] Processing attendance for: $input (manual: $isManual)');
     _isLoading = true;
     _statusMessage = 'Processing attendance...';
     notifyListeners();
@@ -108,10 +123,8 @@ class AttendanceProvider extends ChangeNotifier {
     try {
       final result = await _attendanceService.processAttendance(input, isManual: isManual);
       _statusMessage = result;
-      print('✅ [UI] Attendance processed: $result');
       await refreshData();
     } catch (e) {
-      print('❌ [UI] Attendance processing failed: $e');
       _statusMessage = 'Error: ${e.toString()}';
     }
 
@@ -120,7 +133,6 @@ class AttendanceProvider extends ChangeNotifier {
   }
 
   Future<void> createEvent(String eventName) async {
-    print('🎉 [UI] Creating event: $eventName');
     _isLoading = true;
     _statusMessage = 'Creating event...';
     notifyListeners();
@@ -129,10 +141,8 @@ class AttendanceProvider extends ChangeNotifier {
       await _attendanceService.createEvent(eventName);
       _currentEvent = await _attendanceService.getCurrentEvent();
       _statusMessage = 'Event "$eventName" created successfully';
-      print('✅ [UI] Event created: $eventName');
       await refreshData();
     } catch (e) {
-      print('❌ [UI] Event creation failed: $e');
       _statusMessage = 'Error creating event: ${e.toString()}';
     }
 
@@ -162,7 +172,14 @@ class AttendanceProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      await _attendanceService.deleteAttendanceRecord(record.id!, record.studentId);
+      // For local storage, we need the integer ID
+      if (record.id != null) {
+        // Try to parse as int for local database
+        final intId = int.tryParse(record.id!);
+        if (intId != null) {
+          await _attendanceService.deleteAttendanceRecord(intId, record.studentId);
+        }
+      }
       _statusMessage = 'Attendance record deleted';
       await refreshData();
     } catch (e) {
@@ -246,7 +263,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                     if (provider.currentEvent != null) ...[
                       const SizedBox(height: 4),
                       Text(
-                        'Started: ${DateFormat('MMM dd, yyyy - HH:mm').format(provider.currentEvent!.startTime)}',
+                        'Started: ${DateFormat('MMM dd, yyyy - HH:mm').format(provider.currentEvent!.date)}',
                         style: TextStyle(color: Colors.grey.shade700),
                       ),
                     ],
@@ -474,7 +491,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                               Text('In: ${DateFormat('HH:mm:ss').format(record.checkInTime)}'),
                               if (record.isCheckedOut) ...[
                                 Text('Out: ${DateFormat('HH:mm:ss').format(record.checkOutTime!)}'),
-                                Text('Duration: ${record.duration!.inMinutes} min, Points: ${record.pointsEarned}'),
+                                Text('Duration: ${record.duration!.inMinutes} min, Points: ${record.points}'),
                               ] else
                                 const Text('Still checked in'),
                               if (record.isManualEntry)

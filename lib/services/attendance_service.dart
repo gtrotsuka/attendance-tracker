@@ -56,7 +56,7 @@ class AttendanceService {
     // Check if student is already checked in
     AttendanceRecord? activeRecord = await _db.getActiveAttendanceRecord(
       studentId, 
-      activeEvent.id!
+      int.tryParse(activeEvent.id!) ?? 0
     );
 
     if (activeRecord == null) {
@@ -77,7 +77,11 @@ class AttendanceService {
       final duration = checkOutTime.difference(activeRecord.checkInTime);
       final points = calculatePoints(duration);
       
-      await _db.updateCheckOut(activeRecord.id!, checkOutTime, points);
+      await _db.updateCheckOut(
+        int.tryParse(activeRecord.id!) ?? 0, 
+        checkOutTime, 
+        points
+      );
       
       // Update student total points
       final totalPoints = await _db.calculateTotalPoints(studentId);
@@ -94,12 +98,12 @@ class AttendanceService {
     // End any existing active events
     final activeEvent = await _db.getActiveEvent();
     if (activeEvent != null) {
-      await _db.endEvent(activeEvent.id!);
+      await _db.endEvent(int.tryParse(activeEvent.id!) ?? 0);
     }
 
     final event = Event(
       name: eventName,
-      startTime: DateTime.now(),
+      date: DateTime.now(),
     );
     return await _db.insertEvent(event);
   }
@@ -113,7 +117,7 @@ class AttendanceService {
   Future<List<AttendanceRecord>> getCurrentEventAttendance() async {
     final activeEvent = await _db.getActiveEvent();
     if (activeEvent == null) return [];
-    return await _db.getAttendanceRecords(activeEvent.id!);
+    return await _db.getAttendanceRecords(int.tryParse(activeEvent.id!) ?? 0);
   }
 
   // Get all attendance records
@@ -139,7 +143,7 @@ class AttendanceService {
   Future<void> endCurrentEvent() async {
     final activeEvent = await _db.getActiveEvent();
     if (activeEvent != null) {
-      await _db.endEvent(activeEvent.id!);
+      await _db.endEvent(int.tryParse(activeEvent.id!) ?? 0);
     }
   }
 

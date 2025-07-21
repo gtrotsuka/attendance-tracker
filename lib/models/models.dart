@@ -23,6 +23,14 @@ class Student {
     };
   }
 
+  Map<String, dynamic> toFirebaseMap() {
+    return {
+      'name': name,
+      'totalPoints': totalPoints,
+      'createdAt': createdAt.toIso8601String(),
+    };
+  }
+
   factory Student.fromMap(Map<String, dynamic> map) {
     return Student(
       id: map['id'],
@@ -30,6 +38,18 @@ class Student {
       name: map['name'],
       totalPoints: map['total_points'] ?? 0,
       createdAt: DateTime.parse(map['created_at']),
+    );
+  }
+
+  factory Student.fromFirebaseMap(Map<String, dynamic> map) {
+    return Student(
+      id: null, // Firebase uses string keys, not integer IDs
+      studentId: map['studentId'] ?? '',
+      name: map['name'],
+      totalPoints: map['totalPoints'] ?? 0,
+      createdAt: map['createdAt'] != null 
+        ? DateTime.parse(map['createdAt']) 
+        : DateTime.now(),
     );
   }
 
@@ -51,17 +71,17 @@ class Student {
 }
 
 class Event {
-  final int? id;
+  final String? id; // Firebase uses string IDs
   final String name;
-  final DateTime startTime;
-  final DateTime? endTime;
+  final String? description;
+  final DateTime date;
   final bool isActive;
 
   Event({
     this.id,
     required this.name,
-    required this.startTime,
-    this.endTime,
+    this.description,
+    required this.date,
     this.isActive = true,
   });
 
@@ -69,46 +89,66 @@ class Event {
     return {
       'id': id,
       'name': name,
-      'start_time': startTime.toIso8601String(),
-      'end_time': endTime?.toIso8601String(),
+      'description': description,
+      'date': date.toIso8601String().split('T').first,
       'is_active': isActive ? 1 : 0,
+    };
+  }
+
+  Map<String, dynamic> toFirebaseMap() {
+    return {
+      'name': name,
+      'description': description,
+      'date': date.toIso8601String().split('T').first,
+      'isActive': isActive,
+      'createdAt': DateTime.now().toIso8601String(),
     };
   }
 
   factory Event.fromMap(Map<String, dynamic> map) {
     return Event(
-      id: map['id'],
+      id: map['id']?.toString(),
       name: map['name'],
-      startTime: DateTime.parse(map['start_time']),
-      endTime: map['end_time'] != null ? DateTime.parse(map['end_time']) : null,
+      description: map['description'],
+      date: DateTime.parse('${map['date']}T00:00:00.000Z'),
       isActive: map['is_active'] == 1,
     );
   }
 
+  factory Event.fromFirebaseMap(Map<String, dynamic> map) {
+    return Event(
+      id: map['id'],
+      name: map['name'],
+      description: map['description'],
+      date: DateTime.parse('${map['date']}T00:00:00.000Z'),
+      isActive: map['isActive'] == true,
+    );
+  }
+
   Event copyWith({
-    int? id,
+    String? id,
     String? name,
-    DateTime? startTime,
-    DateTime? endTime,
+    String? description,
+    DateTime? date,
     bool? isActive,
   }) {
     return Event(
       id: id ?? this.id,
       name: name ?? this.name,
-      startTime: startTime ?? this.startTime,
-      endTime: endTime ?? this.endTime,
+      description: description ?? this.description,
+      date: date ?? this.date,
       isActive: isActive ?? this.isActive,
     );
   }
 }
 
 class AttendanceRecord {
-  final int? id;
+  final String? id; // Firebase uses string IDs
   final String studentId;
-  final int eventId;
+  final String eventId; // Firebase event IDs are strings
   final DateTime checkInTime;
   final DateTime? checkOutTime;
-  final int pointsEarned;
+  final int points;
   final bool isManualEntry;
 
   AttendanceRecord({
@@ -117,7 +157,7 @@ class AttendanceRecord {
     required this.eventId,
     required this.checkInTime,
     this.checkOutTime,
-    this.pointsEarned = 0,
+    this.points = 0,
     this.isManualEntry = false,
   });
 
@@ -128,30 +168,53 @@ class AttendanceRecord {
       'event_id': eventId,
       'check_in_time': checkInTime.toIso8601String(),
       'check_out_time': checkOutTime?.toIso8601String(),
-      'points_earned': pointsEarned,
+      'points_earned': points,
       'is_manual_entry': isManualEntry ? 1 : 0,
+    };
+  }
+
+  Map<String, dynamic> toFirebaseMap() {
+    return {
+      'studentId': studentId,
+      'eventId': eventId,
+      'checkInTime': checkInTime.toIso8601String(),
+      'checkOutTime': checkOutTime?.toIso8601String(),
+      'points': points,
+      'isManualEntry': isManualEntry,
     };
   }
 
   factory AttendanceRecord.fromMap(Map<String, dynamic> map) {
     return AttendanceRecord(
-      id: map['id'],
+      id: map['id']?.toString(),
       studentId: map['student_id'],
-      eventId: map['event_id'],
+      eventId: map['event_id']?.toString() ?? '',
       checkInTime: DateTime.parse(map['check_in_time']),
       checkOutTime: map['check_out_time'] != null ? DateTime.parse(map['check_out_time']) : null,
-      pointsEarned: map['points_earned'] ?? 0,
+      points: map['points_earned'] ?? 0,
       isManualEntry: map['is_manual_entry'] == 1,
     );
   }
 
+  factory AttendanceRecord.fromFirebaseMap(Map<String, dynamic> map) {
+    return AttendanceRecord(
+      id: map['id'],
+      studentId: map['studentId'],
+      eventId: map['eventId'],
+      checkInTime: DateTime.parse(map['checkInTime']),
+      checkOutTime: map['checkOutTime'] != null ? DateTime.parse(map['checkOutTime']) : null,
+      points: map['points'] ?? 0,
+      isManualEntry: map['isManualEntry'] == true,
+    );
+  }
+
   AttendanceRecord copyWith({
-    int? id,
+    String? id,
     String? studentId,
-    int? eventId,
+    String? eventId,
     DateTime? checkInTime,
     DateTime? checkOutTime,
-    int? pointsEarned,
+    int? points,
     bool? isManualEntry,
   }) {
     return AttendanceRecord(
@@ -160,7 +223,7 @@ class AttendanceRecord {
       eventId: eventId ?? this.eventId,
       checkInTime: checkInTime ?? this.checkInTime,
       checkOutTime: checkOutTime ?? this.checkOutTime,
-      pointsEarned: pointsEarned ?? this.pointsEarned,
+      points: points ?? this.points,
       isManualEntry: isManualEntry ?? this.isManualEntry,
     );
   }
