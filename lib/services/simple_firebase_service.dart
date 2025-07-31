@@ -4,11 +4,7 @@ import 'attendance_service.dart';
 
 /// A simple Firebase-enabled attendance service that extends the local service
 class SimpleFirebaseService extends AttendanceService {
-  static FirebaseDatabase? _database;
-  static bool _isFirebaseAvailable = false;
-  static StreamSubscription<DatabaseEvent>? _eventListener;
-  static StreamSubscription<DatabaseEvent>? _attendanceListener;
-  static StreamSubscription<DatabaseEvent>? _leaderboardListener;
+  // Only use public fields below for Firebase and listeners
   static FirebaseDatabase? database;
   static bool isFirebaseAvailable = false;
   static StreamSubscription<DatabaseEvent>? eventListener;
@@ -18,9 +14,9 @@ class SimpleFirebaseService extends AttendanceService {
   /// Check if Firebase is available and initialize database reference
   static Future<void> initializeFirebase() async {
     try {
-      _database = FirebaseDatabase.instance;
-      await _database!.goOnline();
-      _isFirebaseAvailable = true;
+      database = FirebaseDatabase.instance;
+      await database!.goOnline();
+      isFirebaseAvailable = true;
       database = FirebaseDatabase.instance;
       await database!.goOnline();
       isFirebaseAvailable = true;
@@ -28,40 +24,28 @@ class SimpleFirebaseService extends AttendanceService {
       // Start listening for real-time updates
       _startRealtimeListeners();
     } catch (e) {
-      _isFirebaseAvailable = false;
+      isFirebaseAvailable = false;
       print('⚠️  Firebase database initialization failed: $e');
     }
   }
   /// Start real-time listeners for events, attendance, and leaderboard
   static void _startRealtimeListeners() {
     // Listen for event changes
-    _eventListener?.cancel();
-    _eventListener = _database?.ref('events').onValue.listen((event) {
-      // TODO: Parse event.snapshot.value and update local cache/state
-      print('🔄 [Firebase] Events updated: ${event.snapshot.value}');
-    });
+    // Removed old private listeners
     eventListener?.cancel();
     eventListener = database?.ref('events').onValue.listen((event) {
       // TODO: Parse event.snapshot.value and update local cache/state
       print('🔄 [Firebase] Events updated: ${event.snapshot.value}');
     });
 
-    _attendanceListener?.cancel();
-    _attendanceListener = _database?.ref('attendance').onValue.listen((event) {
-      // TODO: Parse event.snapshot.value and update local cache/state
-      print('🔄 [Firebase] Attendance updated: ${event.snapshot.value}');
-    });
+    // Removed old private listeners
     attendanceListener?.cancel();
     attendanceListener = database?.ref('attendance').onValue.listen((event) {
       // TODO: Parse event.snapshot.value and update local cache/state
       print('🔄 [Firebase] Attendance updated: ${event.snapshot.value}');
     });
 
-    _leaderboardListener?.cancel();
-    _leaderboardListener = _database?.ref('students').onValue.listen((event) {
-      // TODO: Parse event.snapshot.value and update local cache/state
-      print('🔄 [Firebase] Leaderboard updated: ${event.snapshot.value}');
-    });
+    // Removed old private listeners
     leaderboardListener?.cancel();
     leaderboardListener = database?.ref('students').onValue.listen((event) {
       // TODO: Parse event.snapshot.value and update local cache/state
@@ -76,7 +60,7 @@ class SimpleFirebaseService extends AttendanceService {
     final result = await super.processAttendance(input, isManual: isManual);
     
     // Fire and forget Firebase sync - don't wait for it
-    if (_isFirebaseAvailable && _database != null) {
+    if (isFirebaseAvailable && database != null) {
       _syncToFirebaseAsync();
     }
     
@@ -90,7 +74,7 @@ class SimpleFirebaseService extends AttendanceService {
     final eventId = await super.createEvent(eventName);
     
     // Fire and forget Firebase sync - don't wait for it
-    if (_isFirebaseAvailable && _database != null) {
+    if (isFirebaseAvailable && database != null) {
       _syncToFirebaseAsync();
     }
     
@@ -112,14 +96,14 @@ class SimpleFirebaseService extends AttendanceService {
 
   /// Sync current data to Firebase
   Future<void> _syncToFirebase() async {
-    if (!_isFirebaseAvailable || _database == null) return;
+    if (!isFirebaseAvailable || database == null) return;
 
     try {
       final currentEvent = await getCurrentEvent();
       if (currentEvent == null) return;
 
       // Sync event data
-      await _database!.ref('events/${currentEvent.id}').set({
+      await database!.ref('events/${currentEvent.id}').set({
         'name': currentEvent.name,
         'date': currentEvent.date.toIso8601String(),
         'isActive': true,
@@ -128,7 +112,7 @@ class SimpleFirebaseService extends AttendanceService {
       // Sync attendance records
       final attendance = await getCurrentEventAttendance();
       for (final record in attendance) {
-        await _database!.ref('attendance/${currentEvent.id}/${record.studentId}').set({
+        await database!.ref('attendance/${currentEvent.id}/${record.studentId}').set({
           'studentId': record.studentId,
           'checkInTime': record.checkInTime.toIso8601String(),
           'checkOutTime': record.checkOutTime?.toIso8601String(),
@@ -141,7 +125,7 @@ class SimpleFirebaseService extends AttendanceService {
       // Sync leaderboard
       final leaderboard = await getLeaderboard();
       for (final student in leaderboard) {
-        await _database!.ref('students/${student.studentId}').set({
+        await database!.ref('students/${student.studentId}').set({
           'studentId': student.studentId,
           'name': student.name,
           'totalPoints': student.totalPoints,
@@ -158,9 +142,7 @@ class SimpleFirebaseService extends AttendanceService {
   /// Get Firebase connection status
   /// Dispose listeners when no longer needed
   static void disposeListeners() {
-    _eventListener?.cancel();
-    _attendanceListener?.cancel();
-    _leaderboardListener?.cancel();
+    // Removed old private listeners
     eventListener?.cancel();
     attendanceListener?.cancel();
     leaderboardListener?.cancel();
