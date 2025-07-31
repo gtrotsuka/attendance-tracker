@@ -1,15 +1,11 @@
+import 'package:firebase_database/firebase_database.dart';
 import '../models/models.dart';
-import 'firebase_service.dart';
-import 'database_service.dart';
 
-class AttendanceService {
-  final DatabaseService _db = DatabaseService();
+class FirebaseAttendanceService {
+  final FirebaseDatabase _db = FirebaseDatabase.instance;
 
-  // Parse card swipe data to extract student ID
   String parseCardSwipe(String swipeData) {
-    // For input like ";1570=903774061=00=6017700007279520?"
-    // Extract the ID number (903774061) which is between the first two = signs
-    final regex = RegExp(r'=(\d+)=');
+    final regex = RegExp(r'=(\d+)='); 
     final match = regex.firstMatch(swipeData);
     if (match != null && match.groupCount > 0) {
       return match.group(1)!;
@@ -17,329 +13,118 @@ class AttendanceService {
     throw Exception('Invalid card swipe data format');
   }
 
-  // Calculate points based on attendance duration
   int calculatePoints(Duration duration) {
     final minutes = duration.inMinutes;
-    if (minutes < 15) return 1; // Minimum attendance
+    if (minutes < 15) return 1;
     if (minutes < 30) return 3;
     if (minutes < 60) return 5;
     if (minutes < 120) return 8;
-    return 10; // Maximum points for 2+ hours
+    return 10;
   }
 
-  // Process check-in or check-out
+  Future<Event?> getCurrentEvent() async {
+    final snapshot = await _db.ref('events').orderByChild('isActive').equalTo(true).limitToLast(1).get();
+    if (snapshot.exists && snapshot.children.isNotEmpty) {
+      final data = snapshot.children.first.value as Map<dynamic, dynamic>;
+      return Event.fromFirebaseMap(Map<String, dynamic>.from(data));
+    }
+    return null;
+  }
+
+  Future<List<Student>> getLeaderboard() async {
+    final snapshot = await _db.ref('students').get();
+    if (!snapshot.exists) return [];
+    return snapshot.children.map((snap) => Student.fromFirebaseMap(Map<String, dynamic>.from(snap.value as Map))).toList();
+  }
+
+  Future<List<AttendanceRecord>> getCurrentEventAttendance() async {
+    final event = await getCurrentEvent();
+    if (event == null || event.id == null) return [];
+    final snapshot = await _db.ref('attendance/${event.id}').get();
+    if (!snapshot.exists) return [];
+    return snapshot.children.map((snap) => AttendanceRecord.fromFirebaseMap(Map<String, dynamic>.from(snap.value as Map))).toList();
+  }
+
   Future<String> processAttendance(String input, {bool isManual = false}) async {
     String studentId;
-    
     try {
-      if (isManual) {
-        studentId = input.trim();
-      } else {
-        studentId = parseCardSwipe(input);
-      }
+      studentId = isManual ? input.trim() : parseCardSwipe(input);
     } catch (e) {
       return 'Error: Invalid input format';
     }
 
-    // Try Firebase first
-    if (FirebaseService.isAvailable) {
-      try {
-        final activeEvent = await FirebaseService.getActiveEvent();
-        if (activeEvent == null) {
-          return 'Error: No active event found';
-        }
-
-        // Check if student is already checked in
-        final activeRecord = await FirebaseService.getActiveAttendanceRecord(
-          studentId, 
-          activeEvent.id!
-        );
-
-        if (activeRecord == null) {
-          // Check in
-          await FirebaseService.saveStudent(Student(studentId: studentId));
-          
-          final record = AttendanceRecord(
-            studentId: studentId,
-            eventId: activeEvent.id!,
-            checkInTime: DateTime.now(),
-            isManualEntry: isManual,
-          );
-          
-          await FirebaseService.saveAttendanceRecord(record);
-          return '$studentId checked in';
-        } else {
-          // Check out
-          final checkOutTime = DateTime.now();
-          final duration = checkOutTime.difference(activeRecord.checkInTime);
-          final points = calculatePoints(duration);
-          
-          final updatedRecord = activeRecord.copyWith(
-            checkOutTime: checkOutTime,
-            points: points,
-          );
-          
-          await FirebaseService.updateAttendanceRecord(activeRecord.id!, updatedRecord);
-          
-          // Update student total points
-          final student = await FirebaseService.getStudent(studentId);
-          if (student != null) {
-            final updatedStudent = student.copyWith(
-              totalPoints: student.totalPoints + points,
-            );
-            await FirebaseService.saveStudent(updatedStudent);
-          }
-          
-          final durationText = '${duration.inMinutes} min';
-          return '$studentId checked out ($durationText, +$points pts)';
-        }
-      } catch (e) {
-        print('Firebase error, falling back to local storage: $e');
-      }
+    final event = await getCurrentEvent();
+    if (event == null || event.id == null) {
+      return 'Error: No active event found';
     }
 
-    // Fallback to local storage
-    try {
-      // Get or create student
-      Student? student = await _db.getStudent(studentId);
-      if (student == null) {
-        student = Student(studentId: studentId);
-        await _db.insertStudent(student);
-      }
-
-      // Get active event
-      Event? activeEvent = await _db.getActiveEvent();
-      if (activeEvent == null) {
-        return 'Error: No active event found';
-      }
-
-      // Check if student is already checked in
-      AttendanceRecord? activeRecord = await _db.getActiveAttendanceRecord(
-        studentId, 
-        int.parse(activeEvent.id!.replaceAll(RegExp(r'[^0-9]'), '')) // Convert string ID to int
+    final attendanceSnap = await _db.ref('attendance/${event.id}/$studentId').get();
+    if (!attendanceSnap.exists) {
+      // Check in
+      final record = AttendanceRecord(
+        studentId: studentId,
+        eventId: event.id!,
+        checkInTime: DateTime.now(),
+        isManualEntry: isManual,
       );
-
-      if (activeRecord == null) {
-        // Check in
-        final record = AttendanceRecord(
-          studentId: studentId,
-          eventId: activeEvent.id!.toString(),
-          checkInTime: DateTime.now(),
-          isManualEntry: isManual,
-        );
-        await _db.insertAttendanceRecord(record);
-        
-        final displayName = student.name ?? studentId;
-        return '$displayName checked in';
-      } else {
-        // Check out
-        final checkOutTime = DateTime.now();
-        final duration = checkOutTime.difference(activeRecord.checkInTime);
-        final points = calculatePoints(duration);
-        
-        await _db.updateCheckOut(activeRecord.id!, checkOutTime, points);
-        
-        // Update student total points
-        final totalPoints = await _db.calculateTotalPoints(studentId);
-        await _db.updateStudentPoints(studentId, totalPoints);
-        
-        final displayName = student.name ?? studentId;
-        final durationText = '${duration.inMinutes} min';
-        return '$displayName checked out ($durationText, +$points pts)';
+      await _db.ref('attendance/${event.id}/$studentId').set(record.toFirebaseMap());
+      return '$studentId checked in';
+    } else {
+      // Check out
+      final record = AttendanceRecord.fromFirebaseMap(Map<String, dynamic>.from(attendanceSnap.value as Map));
+      if (record.isCheckedOut) {
+        return '$studentId already checked out';
       }
-    } catch (e) {
-      print('Local storage error: $e');
-      return 'Error: Failed to process attendance - $e';
+      final checkOutTime = DateTime.now();
+      final duration = checkOutTime.difference(record.checkInTime);
+      final points = calculatePoints(duration);
+      final updated = record.copyWith(
+        checkOutTime: checkOutTime,
+        points: points,
+      );
+      await _db.ref('attendance/${event.id}/$studentId').set(updated.toFirebaseMap());
+      // Update student points
+      final studentSnap = await _db.ref('students/$studentId').get();
+      int totalPoints = points;
+      if (studentSnap.exists) {
+        final student = Student.fromFirebaseMap(Map<String, dynamic>.from(studentSnap.value as Map));
+        totalPoints += student.totalPoints;
+      }
+      await _db.ref('students/$studentId').set({
+        'studentId': studentId,
+        'totalPoints': totalPoints,
+        'name': studentSnap.exists ? (studentSnap.value as Map)['name'] : null,
+        'createdAt': studentSnap.exists ? (studentSnap.value as Map)['createdAt'] : DateTime.now().toIso8601String(),
+      });
+      return '$studentId checked out (+$points pts)';
     }
   }
 
-  // Create a new event
-  Future<int> createEvent(String eventName) async {
-    // Try Firebase first
-    if (FirebaseService.isAvailable) {
-      try {
-        final event = Event(
-          name: eventName,
-          date: DateTime.now(),
-          isActive: true,
-        );
-        
-        final eventId = await FirebaseService.createEvent(event);
-        return eventId.hashCode; // Convert string to int for compatibility
-      } catch (e) {
-        print('Firebase error, falling back to local storage: $e');
-      }
-    }
-
-    // Fallback to local storage
+  Future<String> createEvent(String eventName) async {
     // End any existing active events
-    final activeEvent = await _db.getActiveEvent();
-    if (activeEvent != null) {
-      await _db.endEvent(activeEvent.id!);
+    final eventsSnap = await _db.ref('events').orderByChild('isActive').equalTo(true).get();
+    for (final snap in eventsSnap.children) {
+      await _db.ref('events/${snap.key}').update({'isActive': false});
     }
-
+    final newEventRef = _db.ref('events').push();
     final event = Event(
+      id: newEventRef.key,
       name: eventName,
       date: DateTime.now(),
+      isActive: true,
     );
-    return await _db.insertEvent(event);
+    await newEventRef.set(event.toFirebaseMap());
+    return event.name;
   }
 
-  // Get leaderboard
-  Future<List<Student>> getLeaderboard() async {
-    // Try Firebase first
-    if (FirebaseService.isAvailable) {
-      try {
-        return await FirebaseService.getLeaderboard();
-      } catch (e) {
-        print('Firebase error, falling back to local storage: $e');
-      }
-    }
-
-    // Fallback to local storage
-    return await _db.getAllStudents();
-  }
-
-  // Get attendance records for current event
-  Future<List<AttendanceRecord>> getCurrentEventAttendance() async {
-    // Try Firebase first
-    if (FirebaseService.isAvailable) {
-      try {
-        final activeEvent = await FirebaseService.getActiveEvent();
-        if (activeEvent != null) {
-          return await FirebaseService.getEventAttendance(activeEvent.id!);
-        }
-        return [];
-      } catch (e) {
-        print('Firebase error, falling back to local storage: $e');
-      }
-    }
-
-    // Fallback to local storage
-    final activeEvent = await _db.getActiveEvent();
-    if (activeEvent == null) return [];
-    return await _db.getAttendanceRecords(activeEvent.id!);
-  }
-
-  // Get all attendance records
-  Future<List<AttendanceRecord>> getAllAttendanceRecords() async {
-    return await _db.getAllAttendanceRecords();
-  }
-
-  // Delete attendance record
-  Future<void> deleteAttendanceRecord(int recordId, String studentId) async {
-    await _db.deleteAttendanceRecord(recordId);
-    
-    // Recalculate student points
-    final totalPoints = await _db.calculateTotalPoints(studentId);
-    await _db.updateStudentPoints(studentId, totalPoints);
-  }
-
-  // Get current active event
-  Future<Event?> getCurrentEvent() async {
-    // Try Firebase first
-    if (FirebaseService.isAvailable) {
-      try {
-        return await FirebaseService.getActiveEvent();
-      } catch (e) {
-        print('Firebase error, falling back to local storage: $e');
-      }
-    }
-
-    // Fallback to local storage
-    return await _db.getActiveEvent();
-  }
-
-  // End current event
   Future<void> endCurrentEvent() async {
-    // Try Firebase first
-    if (FirebaseService.isAvailable) {
-      try {
-        final activeEvent = await FirebaseService.getActiveEvent();
-        if (activeEvent != null) {
-          // Deactivate all events in Firebase
-          await FirebaseService.createEvent(activeEvent.copyWith(isActive: false));
-        }
-        return;
-      } catch (e) {
-        print('Firebase error, falling back to local storage: $e');
-      }
-    }
-
-    // Fallback to local storage
-    final activeEvent = await _db.getActiveEvent();
-    if (activeEvent != null) {
-      await _db.endEvent(activeEvent.id!);
+    final event = await getCurrentEvent();
+    if (event != null && event.id != null) {
+      await _db.ref('events/${event.id}').update({'isActive': false});
     }
   }
 
-  // Update student name (for when roster is imported)
-  Future<void> updateStudentName(String studentId, String name) async {
-    // Try Firebase first
-    if (FirebaseService.isAvailable) {
-      try {
-        final student = await FirebaseService.getStudent(studentId);
-        if (student != null) {
-          await FirebaseService.saveStudent(student.copyWith(name: name));
-        }
-        return;
-      } catch (e) {
-        print('Firebase error, falling back to local storage: $e');
-      }
-    }
-
-    // Fallback to local storage
-    final student = await _db.getStudent(studentId);
-    if (student != null) {
-      final updatedStudent = student.copyWith(name: name);
-      await _db.insertStudent(updatedStudent);
-    }
-  }
-
-  // Get student display name
-  Future<String> getStudentDisplayName(String studentId) async {
-    // Try Firebase first
-    if (FirebaseService.isAvailable) {
-      try {
-        final student = await FirebaseService.getStudent(studentId);
-        return student?.name ?? studentId;
-      } catch (e) {
-        print('Firebase error, falling back to local storage: $e');
-      }
-    }
-
-    // Fallback to local storage
-    final student = await _db.getStudent(studentId);
-    return student?.name ?? studentId;
-  }
-
-  // Get connection status
-  bool get isConnected => FirebaseService.isAvailable;
-
-  // Get realtime streams (Firebase only)
-  Stream<List<Student>> watchLeaderboard({int limit = 10}) {
-    if (FirebaseService.isAvailable) {
-      return FirebaseService.watchLeaderboard(limit: limit);
-    }
-    return Stream.value([]);
-  }
-
-  Stream<List<AttendanceRecord>> watchCurrentEventAttendance() {
-    if (FirebaseService.isAvailable) {
-      return FirebaseService.getActiveEvent().asStream().asyncExpand((event) {
-        if (event != null) {
-          return FirebaseService.watchEventAttendance(event.id!);
-        }
-        return Stream.value(<AttendanceRecord>[]);
-      });
-    }
-    return Stream.value([]);
-  }
-
-  Stream<bool> watchConnectionStatus() {
-    if (FirebaseService.isAvailable) {
-      return FirebaseService.watchConnectionStatus();
-    }
-    return Stream.value(false);
+  Future<void> deleteAttendanceRecord(String eventId, String studentId) async {
+    await _db.ref('attendance/$eventId/$studentId').remove();
   }
 }
